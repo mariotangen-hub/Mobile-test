@@ -97,11 +97,8 @@ def build_settings(wb: Workbook):
 # --- Inkomst ----------------------------------------------------------------
 
 INCOME_DEFAULTS = [
-    ("Lön", 35000, 0),
-    ("Bonus", 0, 0),
-    ("Sidoinkomst", 2000, 0),
-    ("Bidrag / Studiestöd", 0, 0),
-    ("Övrigt", 0, 0),
+    ("Lön efter skatt", 27840, 27840),
+    ("Övrig inkomst", 0, 0),
 ]
 
 
@@ -165,11 +162,24 @@ def build_expenses(wb: Workbook):
     start = 2
     end = start + EXPENSE_ROWS - 1
 
+    # Återkommande månadsposter – datumkolumnen lämnas tom så du kan
+    # fylla i när varje räkning faktiskt betalas.
     sample = [
-        ("2026-04-01", "Boende", "Hyra", 12000, 12000),
-        ("2026-04-02", "Mat", "Veckohandling", 1800, 0),
-        ("2026-04-03", "Transport", "SL-kort", 1020, 1020),
-        ("2026-04-05", "Prenumerationer", "Spotify + Netflix", 250, 0),
+        (None, "Boende",          "Hyra",                                 3914, 0),
+        (None, "Mat",             "Matbudget",                            6200, 0),
+        (None, "Transport",       "Diesel",                               2750, 0),
+        (None, "Transport",       "Underhåll bil/mc",                     1000, 0),
+        (None, "Transport",       "Bilskatt (5639 kr/år ÷ 12)",            470, 0),
+        (None, "Försäkring",      "Bilförsäkring (416 kr/år ÷ 12)",         35, 0),
+        (None, "Försäkring",      "A-kassa",                               160, 0),
+        (None, "Prenumerationer", "Spotify",                               129, 0),
+        (None, "Prenumerationer", "Apple",                                  39, 0),
+        (None, "Prenumerationer", "Google",                                 40, 0),
+        (None, "Prenumerationer", "Soundcloud",                             75, 0),
+        (None, "Prenumerationer", "Claude Max",                           1300, 0),
+        (None, "Prenumerationer", "Systeme.io",                            160, 0),
+        (None, "Hälsa",           "Linser",                                500, 0),
+        (None, "Kläder",          "Kläder och övriga utgifter",              0, 0),
     ]
 
     for i in range(EXPENSE_ROWS):
@@ -273,13 +283,51 @@ def build_expenses(wb: Workbook):
     return ws, start, end, total_row
 
 
+# --- Konton -----------------------------------------------------------------
+
+ACCOUNT_DEFAULTS = [
+    ("Sparkonto", 34000, "Behöver tas pengar härifrån denna månad"),
+    ("Allkonto",   2600, ""),
+]
+
+
+def build_accounts(wb: Workbook):
+    ws = wb.create_sheet("Konton")
+    headers = ["Konto", "Saldo (kr)", "Anteckning"]
+    ws.append(headers)
+    style_headers(ws, 1, len(headers))
+
+    start = 2
+    for i, (name, balance, note) in enumerate(ACCOUNT_DEFAULTS):
+        r = start + i
+        ws.cell(row=r, column=1, value=name).alignment = LEFT
+        ws.cell(row=r, column=2, value=balance).number_format = SEK_FMT
+        ws.cell(row=r, column=3, value=note).alignment = LEFT
+        for c in range(1, 4):
+            ws.cell(row=r, column=c).border = BORDER
+
+    last = start + len(ACCOUNT_DEFAULTS) - 1
+    total_row = last + 1
+    ws.cell(row=total_row, column=1, value="TOTALT").font = BOLD
+    ws.cell(row=total_row, column=2, value=f"=SUM(B{start}:B{last})")
+    for c in range(1, 4):
+        cell = ws.cell(row=total_row, column=c)
+        cell.fill = TOTAL_FILL
+        cell.font = BOLD
+        cell.border = BORDER
+    ws.cell(row=total_row, column=2).number_format = SEK_FMT
+
+    set_widths(ws, {"A": 22, "B": 16, "C": 50})
+    ws.freeze_panes = "A2"
+    ws.sheet_view.showGridLines = False
+    return ws, total_row
+
+
 # --- Sparmål ----------------------------------------------------------------
 
 SAVINGS_DEFAULTS = [
-    ("Buffert (3 mån utgifter)", 60000, 5000, 2000),
-    ("Semesterresa", 25000, 4000, 1500),
-    ("Ny dator", 18000, 0, 1000),
-    ("Pension – extra", 100000, 12000, 1500),
+    ("Buffert",   60000, 34000, 0),
+    ("Snöskoter", 40000,     0, 0),
 ]
 
 
@@ -342,7 +390,8 @@ def build_savings(wb: Workbook):
 
 def build_dashboard(wb: Workbook, income_total_row: int,
                     expense_start: int, expense_end: int,
-                    savings_start: int, savings_end: int):
+                    savings_start: int, savings_end: int,
+                    accounts_total_row: int):
     ws = wb.create_sheet("Översikt", 0)  # första fliken
 
     ws.merge_cells("A1:F1")
@@ -359,11 +408,14 @@ def build_dashboard(wb: Workbook, income_total_row: int,
 
     kpi = [
         ("Total inkomst",  f"=Inkomst!C{income_total_row}",                SEK_FMT),
-        ("Total utgift",   f"=SUM(Utgifter!E{expense_start}:E{expense_end})", SEK_FMT),
-        ("Netto / Sparat", "=B5-B6",                                       SEK_FMT),
+        ("Total utgift (budget)",
+                           f"=SUM(Utgifter!D{expense_start}:D{expense_end})", SEK_FMT),
+        ("Netto enligt budget", "=B5-B6",                                  SEK_FMT),
         ("Sparkvot",       '=IFERROR(B7/B5,0)',                            PCT_FMT),
-        ("Budget kvar",    f"=SUM(Utgifter!D{expense_start}:D{expense_end})"
-                           f"-SUM(Utgifter!E{expense_start}:E{expense_end})", SEK_FMT),
+        ("Faktiskt utgift hittills",
+                           f"=SUM(Utgifter!E{expense_start}:E{expense_end})", SEK_FMT),
+        ("Saldo på konton",
+                           f"=Konton!B{accounts_total_row}",               SEK_FMT),
     ]
     for i, (label, formula, fmt) in enumerate(kpi):
         r = 5 + i
@@ -457,8 +509,10 @@ def build() -> None:
     income_ws, income_total_row = build_income(wb)
     expense_ws, exp_start, exp_end, _ = build_expenses(wb)
     savings_ws, sav_start, sav_end = build_savings(wb)
+    accounts_ws, accounts_total_row = build_accounts(wb)
     dashboard = build_dashboard(
-        wb, income_total_row, exp_start, exp_end, sav_start, sav_end,
+        wb, income_total_row, exp_start, exp_end,
+        sav_start, sav_end, accounts_total_row,
     )
 
     # Namngivna områden
