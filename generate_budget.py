@@ -166,10 +166,9 @@ def build_expenses(wb: Workbook):
     # fylla i när varje räkning faktiskt betalas.
     sample = [
         (None, "Boende",          "Hyra",                                 3914, 0),
-        (None, "Räkningar",       "El (fyll i)",                             0, 0),
-        (None, "Räkningar",       "Bredband / internet (fyll i)",            0, 0),
-        (None, "Räkningar",       "Mobiltelefon (fyll i)",                   0, 0),
-        (None, "Försäkring",      "Hemförsäkring (fyll i)",                  0, 0),
+        (None, "Räkningar",       "El + bredband",                         830, 0),
+        (None, "Räkningar",       "Mobilabonnemang",                       349, 0),
+        (None, "Försäkring",      "Hemförsäkring",                         100, 0),
         (None, "Mat",             "Matbudget",                            6200, 0),
         (None, "Transport",       "Diesel",                               2750, 0),
         (None, "Transport",       "Underhåll bil/mc",                     1000, 0),
