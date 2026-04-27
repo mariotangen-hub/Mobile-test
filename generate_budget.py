@@ -330,8 +330,8 @@ def build_accounts(wb: Workbook):
 # --- Sparmål ----------------------------------------------------------------
 
 SAVINGS_DEFAULTS = [
-    ("Buffert",   60000, 34000, 0),
-    ("Snöskoter", 40000,     0, 0),
+    ("Buffert",   60000, 34000, 3500),
+    ("Snöskoter", 40000,     0, 3500),
 ]
 
 
