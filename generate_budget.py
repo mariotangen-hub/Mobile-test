@@ -182,7 +182,7 @@ def build_expenses(wb: Workbook):
         (None, "Prenumerationer", "Claude Max",                           1300, 0),
         (None, "Prenumerationer", "Systeme.io",                            160, 0),
         (None, "Hälsa",           "Linser",                                500, 0),
-        (None, "Kläder",          "Kläder och övriga utgifter",              0, 0),
+        (None, "Kläder",          "Kläder och övriga utgifter",           1500, 0),
     ]
 
     for i in range(EXPENSE_ROWS):
@@ -329,8 +329,8 @@ def build_accounts(wb: Workbook):
 # --- Sparmål ----------------------------------------------------------------
 
 SAVINGS_DEFAULTS = [
-    ("Buffert",   60000, 34000, 3500),
-    ("Snöskoter", 40000,     0, 3500),
+    ("Buffert",   60000, 34000, 5000),
+    ("Snöskoter", 40000,     0, 2000),
 ]
 
 
