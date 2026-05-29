@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Stack">
+<meta name="theme-color" content="#10131a">
+<title>Stack</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #10131a;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    touch-action: none;
+    overscroll-behavior: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  #game {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    touch-action: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+(function () {
+  "use strict";
+
+  var canvas = document.getElementById("game");
+  var ctx = canvas.getContext("2d");
+
+  // ---- Display / sizing ----
+  var DPR = Math.max(1, Math.min(window.devicePixelRatio || 1, 3));
+  var W = 0, H = 0;          // CSS pixel dimensions of the viewport
+  var safeTop = 0, safeBottom = 0;
+
+  function readSafeInsets() {
+    var probe = document.createElement("div");
+    probe.style.cssText =
+      "position:fixed;top:0;left:0;width:0;height:0;" +
+      "padding-top:env(safe-area-inset-top);" +
+      "padding-bottom:env(safe-area-inset-bottom);visibility:hidden;";
+    document.body.appendChild(probe);
+    var cs = getComputedStyle(probe);
+    safeTop = parseFloat(cs.paddingTop) || 0;
+    safeBottom = parseFloat(cs.paddingBottom) || 0;
+    document.body.removeChild(probe);
+  }
+
+  function resize() {
+    readSafeInsets();
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    layout();
+  }
+
+  // ---- Game constants ----
+  var BLOCK_H = 0;           // height of each layer (computed from viewport)
+  var baseY = 0;             // screen Y of the top of the very first (base) block
+  var anchorScreenY = 0;     // where the active/top block sits on screen
+  var INITIAL_SPEED = 0;     // px per second
+  var SPEED_STEP = 0;
+  var PERFECT_TOL = 6;       // px tolerance for a "perfect" drop
+
+  function layout() {
+    BLOCK_H = Math.max(34, Math.min(56, H * 0.062));
+    baseY = H - safeBottom - Math.max(40, H * 0.10);
+    anchorScreenY = safeTop + Math.max(150, H * 0.26);
+    INITIAL_SPEED = W * 0.62;
+    SPEED_STEP = W * 0.022;
+  }
+
+  // ---- State ----
+  var STATE_READY = 0, STATE_PLAYING = 1, STATE_OVER = 2;
+  var state;
+
+  var stack;        // array of placed blocks {x, w, hue}  (x = left edge in world coords)
+  var active;       // currently sliding block {x, w, hue, dir, speed}
+  var debris;       // sliced-off falling pieces
+  var camera;       // world->screen vertical offset (smoothly eased)
+  var cameraTarget;
+  var score;
+  var best;
+  var baseHue;
+  var perfectFlash; // 0..1 timer for the "Perfect!" flash
+  var perfectStreak;
+  var shake;        // screen shake amount
+  var overTimer;    // delay before allowing replay tap
+
+  try { best = parseInt(localStorage.getItem("stack_best") || "0", 10) || 0; }
+  catch (e) { best = 0; }
+
+  // World coordinates: y increases downward. Each placed block i (0 = base)
+  // has its top at worldTop = -(i * BLOCK_H). We render worldY - camera onto screen.
+  function worldTopOfLayer(i) { return -(i * BLOCK_H); }
+
+  function screenYForWorld(wy) { return wy + camera; }
+
+  function reset() {
+    state = STATE_READY;
+    score = 0;
+    debris = [];
+    perfectFlash = 0;
+    perfectStreak = 0;
+    shake = 0;
+    camera = baseY;          // so layer 0 top sits at baseY on screen initially
+    cameraTarget = camera;
+    baseHue = Math.random() * 360;
+
+    var startW = Math.min(W * 0.62, 320);
+    var startX = (W - startW) / 2;
+
+    stack = [{ x: startX, w: startW, hue: baseHue }];
+    spawnActive();
+  }
+
+  function hueForLayer(i) {
+    return (baseHue + i * 8) % 360;
+  }
+
+  function spawnActive() {
+    var top = stack[stack.length - 1];
+    var layerIndex = stack.length;
+    var fromLeft = layerIndex % 2 === 0; // alternate entry side
+    active = {
+      x: fromLeft ? -top.w : W,
+      w: top.w,
+      hue: hueForLayer(layerIndex),
+      dir: fromLeft ? 1 : -1,
+      speed: INITIAL_SPEED + SPEED_STEP * (layerIndex - 1)
+    };
+    // The active block lives one layer above the current top.
+    // We adjust the camera so the active block stays near anchorScreenY.
+    cameraTarget = anchorScreenY - worldTopOfLayer(layerIndex);
+  }
+
+  // ---- Input ----
+  function onTap(e) {
+    if (e) { e.preventDefault(); }
+    if (state === STATE_READY) {
+      state = STATE_PLAYING;
+      return;
+    }
+    if (state === STATE_PLAYING) {
+      dropBlock();
+      return;
+    }
+    if (state === STATE_OVER) {
+      if (overTimer <= 0) { reset(); state = STATE_PLAYING; }
+      return;
+    }
+  }
+
+  canvas.addEventListener("touchstart", onTap, { passive: false });
+  canvas.addEventListener("mousedown", function (e) {
+    // Avoid double-firing on devices that emit both.
+    if (e.button !== undefined && e.button !== 0) return;
+    onTap(e);
+  });
+  // Block gestures that could scroll/zoom.
+  document.addEventListener("touchmove", function (e) { e.preventDefault(); }, { passive: false });
+  document.addEventListener("gesturestart", function (e) { e.preventDefault(); });
+  document.addEventListener("dblclick", function (e) { e.preventDefault(); });
+
+  function dropBlock() {
+    var top = stack[stack.length - 1];
+    var a = active;
+
+    var aLeft = a.x;
+    var aRight = a.x + a.w;
+    var tLeft = top.x;
+    var tRight = top.x + top.w;
+
+    var overlapLeft = Math.max(aLeft, tLeft);
+    var overlapRight = Math.min(aRight, tRight);
+    var overlap = overlapRight - overlapLeft;
+
+    var layerIndex = stack.length;
+    var worldTop = worldTopOfLayer(layerIndex);
+
+    if (overlap <= 0) {
+      // Complete miss -> game over. The whole block falls.
+      debris.push({
+        x: aLeft, w: a.w, y: worldTop, hue: a.hue,
+        vy: 0, vx: a.dir * 40, rot: 0, vr: (Math.random() - 0.5) * 4
+      });
+      endGame();
+      return;
+    }
+
+    var offset = Math.abs(a.x - top.x);
+    var perfect = offset <= PERFECT_TOL;
+
+    var newX, newW;
+    if (perfect) {
+      newX = top.x;
+      newW = top.w;
+      perfectFlash = 1;
+      perfectStreak++;
+    } else {
+      newX = overlapLeft;
+      newW = overlap;
+      perfectStreak = 0;
+
+      // Create debris for the sliced overhang.
+      if (aLeft < overlapLeft) {
+        debris.push({
+          x: aLeft, w: overlapLeft - aLeft, y: worldTop, hue: a.hue,
+          vy: 0, vx: -30 - Math.random() * 30, rot: 0, vr: (Math.random() - 0.5) * 3
+        });
+      }
+      if (aRight > overlapRight) {
+        debris.push({
+          x: overlapRight, w: aRight - overlapRight, y: worldTop, hue: a.hue,
+          vy: 0, vx: 30 + Math.random() * 30, rot: 0, vr: (Math.random() - 0.5) * 3
+        });
+      }
+    }
+
+    stack.push({ x: newX, w: newW, hue: a.hue });
+    score++;
+    shake = Math.min(8, 2 + (a.speed / W) * 4);
+
+    spawnActive();
+  }
+
+  function endGame() {
+    state = STATE_OVER;
+    overTimer = 0.6;
+    shake = 10;
+    if (score > best) {
+      best = score;
+      try { localStorage.setItem("stack_best", String(best)); } catch (e) {}
+    }
+  }
+
+  // ---- Update ----
+  function update(dt) {
+    // Camera easing.
+    camera += (cameraTarget - camera) * Math.min(1, dt * 6);
+
+    if (perfectFlash > 0) perfectFlash = Math.max(0, perfectFlash - dt * 1.8);
+    if (shake > 0) shake = Math.max(0, shake - dt * 30);
+    if (state === STATE_OVER && overTimer > 0) overTimer -= dt;
+
+    if (state === STATE_PLAYING && active) {
+      var a = active;
+      a.x += a.dir * a.speed * dt;
+      // Bounce within a margin so it never fully leaves the screen.
+      var margin = Math.min(40, W * 0.06);
+      if (a.x + a.w > W - margin) { a.x = W - margin - a.w; a.dir = -1; }
+      if (a.x < margin) { a.x = margin; a.dir = 1; }
+    }
+
+    // Update debris (gravity fall).
+    for (var i = debris.length - 1; i >= 0; i--) {
+      var d = debris[i];
+      d.vy += 1800 * dt;
+      d.y += d.vy * dt;
+      d.x += d.vx * dt;
+      d.rot += d.vr * dt;
+      // Remove once well below the screen (in world coords -> screen).
+      if (screenYForWorld(d.y) > H + 200) debris.splice(i, 1);
+    }
+  }
+
+  // ---- Render ----
+  function drawBackground() {
+    var hueA = baseHue;
+    var hueB = (baseHue + 40) % 360;
+    var g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "hsl(" + hueA + ", 45%, 16%)");
+    g.addColorStop(0.55, "hsl(" + ((hueA + 20) % 360) + ", 38%, 11%)");
+    g.addColorStop(1, "hsl(" + hueB + ", 30%, 7%)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  function roundedBlock(x, y, w, h, hue, light) {
+    var r = Math.min(8, h * 0.18, w * 0.4);
+    if (r < 0) r = 0;
+    // Main face.
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+
+    var grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, "hsl(" + hue + ", 62%, " + (light + 10) + "%)");
+    grad.addColorStop(1, "hsl(" + hue + ", 62%, " + (light - 6) + "%)");
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Top highlight strip.
+    ctx.fillStyle = "hsla(" + hue + ", 70%, 85%, 0.18)";
+    ctx.fillRect(x + r, y, Math.max(0, w - r * 2), Math.max(1, h * 0.12));
+  }
+
+  function render() {
+    drawBackground();
+
+    ctx.save();
+    if (shake > 0) {
+      ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+    }
+
+    // Draw placed stack blocks.
+    for (var i = 0; i < stack.length; i++) {
+      var b = stack[i];
+      var sy = screenYForWorld(worldTopOfLayer(i));
+      if (sy > H + BLOCK_H || sy + BLOCK_H < -50) continue; // cull off-screen
+      var light = 52 + (i % 2) * 4;
+      roundedBlock(b.x, sy, b.w, BLOCK_H, b.hue, light);
+    }
+
+    // Draw debris.
+    for (var j = 0; j < debris.length; j++) {
+      var d = debris[j];
+      var dsy = screenYForWorld(d.y);
+      ctx.save();
+      ctx.translate(d.x + d.w / 2, dsy + BLOCK_H / 2);
+      ctx.rotate(d.rot);
+      ctx.globalAlpha = 0.9;
+      roundedBlock(-d.w / 2, -BLOCK_H / 2, d.w, BLOCK_H, d.hue, 50);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+
+    // Draw active sliding block.
+    if (state === STATE_PLAYING && active) {
+      var asy = screenYForWorld(worldTopOfLayer(stack.length));
+      roundedBlock(active.x, asy, active.w, BLOCK_H, active.hue, 58);
+    }
+
+    ctx.restore();
+
+    drawUI();
+  }
+
+  function drawUI() {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+
+    if (state === STATE_READY) {
+      // Title + prompt.
+      ctx.fillStyle = "rgba(255,255,255,0.96)";
+      ctx.font = "700 " + Math.round(Math.min(W * 0.16, 86)) + "px -apple-system, system-ui, sans-serif";
+      ctx.fillText("STACK", W / 2, safeTop + Math.max(110, H * 0.22));
+
+      ctx.fillStyle = "rgba(255,255,255,0.78)";
+      ctx.font = "500 " + Math.round(Math.min(W * 0.052, 24)) + "px -apple-system, system-ui, sans-serif";
+      ctx.fillText("Tap to drop the block", W / 2, safeTop + Math.max(160, H * 0.30));
+
+      pulsePrompt("Tap to start", H * 0.62);
+
+      if (best > 0) {
+        ctx.fillStyle = "rgba(255,255,255,0.55)";
+        ctx.font = "500 " + Math.round(Math.min(W * 0.045, 20)) + "px -apple-system, system-ui, sans-serif";
+        ctx.fillText("Best  " + best, W / 2, H * 0.70);
+      }
+      return;
+    }
+
+    // Score (centered near top, below the notch).
+    var scoreY = safeTop + Math.max(70, H * 0.13);
+    ctx.fillStyle = "rgba(255,255,255,0.97)";
+    ctx.font = "700 " + Math.round(Math.min(W * 0.18, 92)) + "px -apple-system, system-ui, sans-serif";
+    ctx.shadowColor = "rgba(0,0,0,0.35)";
+    ctx.shadowBlur = 12;
+    ctx.fillText(String(score), W / 2, scoreY);
+    ctx.shadowBlur = 0;
+
+    // Perfect flash.
+    if (perfectFlash > 0) {
+      ctx.globalAlpha = Math.min(1, perfectFlash * 1.4);
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.font = "700 " + Math.round(Math.min(W * 0.072, 34)) + "px -apple-system, system-ui, sans-serif";
+      var label = perfectStreak > 1 ? "Perfect! x" + perfectStreak : "Perfect!";
+      ctx.fillText(label, W / 2, scoreY + Math.min(W * 0.10, 48));
+      ctx.globalAlpha = 1;
+    }
+
+    if (state === STATE_OVER) {
+      // Dim overlay.
+      ctx.fillStyle = "rgba(8,10,15,0.55)";
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = "rgba(255,255,255,0.96)";
+      ctx.font = "700 " + Math.round(Math.min(W * 0.10, 50)) + "px -apple-system, system-ui, sans-serif";
+      ctx.fillText("Game Over", W / 2, H * 0.40);
+
+      ctx.font = "700 " + Math.round(Math.min(W * 0.20, 100)) + "px -apple-system, system-ui, sans-serif";
+      ctx.fillStyle = "rgba(255,255,255,0.98)";
+      ctx.fillText(String(score), W / 2, H * 0.40 + Math.min(W * 0.24, 118));
+
+      ctx.fillStyle = "rgba(255,255,255,0.72)";
+      ctx.font = "500 " + Math.round(Math.min(W * 0.05, 22)) + "px -apple-system, system-ui, sans-serif";
+      ctx.fillText("Best  " + best, W / 2, H * 0.40 + Math.min(W * 0.24, 118) + 46);
+
+      if (overTimer <= 0) {
+        pulsePrompt("Tap to play again", H * 0.74);
+      }
+    }
+  }
+
+  function pulsePrompt(text, y) {
+    var t = (Date.now() % 1400) / 1400;
+    var alpha = 0.55 + 0.45 * Math.sin(t * Math.PI * 2);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.font = "600 " + Math.round(Math.min(W * 0.058, 26)) + "px -apple-system, system-ui, sans-serif";
+    ctx.fillText(text, W / 2, y);
+    ctx.globalAlpha = 1;
+  }
+
+  // ---- Main loop ----
+  var lastT = 0;
+  function frame(now) {
+    if (!lastT) lastT = now;
+    var dt = (now - lastT) / 1000;
+    lastT = now;
+    if (dt > 0.05) dt = 0.05; // clamp after tab-switch / hiccups
+
+    update(dt);
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  // ---- Boot ----
+  window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", function () {
+    setTimeout(resize, 120);
+  });
+
+  resize();
+  reset();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
