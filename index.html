@@ -6,16 +6,17 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Stack">
-<meta name="theme-color" content="#10131a">
-<title>Stack</title>
+<meta name="apple-mobile-web-app-title" content="Arena FPS">
+<meta name="theme-color" content="#0b0e14">
+<title>Arena FPS</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: #10131a;
+    background: #0b0e14;
+    color: #fff;
     -webkit-user-select: none;
     user-select: none;
     -webkit-tap-highlight-color: transparent;
@@ -24,438 +25,743 @@
     overscroll-behavior: none;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
-  #game {
-    display: block;
-    width: 100vw;
-    height: 100vh;
-    touch-action: none;
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+  /* ---- HUD ---- */
+  #hud {
+    position: fixed; inset: 0; pointer-events: none; z-index: 10;
   }
+  #crosshair {
+    position: absolute; left: 50%; top: 50%;
+    width: 26px; height: 26px; transform: translate(-50%, -50%);
+  }
+  #crosshair::before, #crosshair::after {
+    content: ""; position: absolute; background: rgba(255,255,255,0.85);
+    box-shadow: 0 0 4px rgba(0,0,0,0.6);
+  }
+  #crosshair::before { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); }
+  #crosshair::after { top: 50%; left: 0; height: 2px; width: 100%; transform: translateY(-50%); }
+
+  #topbar {
+    position: absolute; top: calc(env(safe-area-inset-top) + 14px);
+    left: 0; right: 0; display: flex; justify-content: space-between;
+    align-items: flex-start;
+    padding-left: calc(env(safe-area-inset-left) + 18px);
+    padding-right: calc(env(safe-area-inset-right) + 18px);
+  }
+  .stat { font-weight: 700; text-shadow: 0 2px 6px rgba(0,0,0,0.6); }
+  #waveLabel { font-size: 20px; letter-spacing: 0.5px; }
+  #scoreLabel { font-size: 20px; text-align: right; }
+  #healthWrap {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    top: calc(env(safe-area-inset-top) + 16px);
+    width: min(46vw, 260px); height: 16px;
+    background: rgba(255,255,255,0.14); border-radius: 10px;
+    overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  }
+  #healthBar {
+    height: 100%; width: 100%;
+    background: linear-gradient(90deg, #ff4d4d, #ff8a4d);
+    transition: width 0.12s linear;
+  }
+
+  /* ---- Touch controls ---- */
+  #touchUI { position: absolute; inset: 0; display: none; }
+  #joystick {
+    position: absolute; width: 120px; height: 120px;
+    border-radius: 50%; background: rgba(255,255,255,0.10);
+    border: 2px solid rgba(255,255,255,0.25); display: none;
+    pointer-events: none; margin: -60px 0 0 -60px;
+  }
+  #joyThumb {
+    position: absolute; left: 50%; top: 50%;
+    width: 56px; height: 56px; margin: -28px 0 0 -28px;
+    border-radius: 50%; background: rgba(255,255,255,0.35);
+    border: 2px solid rgba(255,255,255,0.55);
+  }
+  #fireBtn {
+    position: absolute; pointer-events: auto;
+    right: calc(env(safe-area-inset-right) + 26px);
+    bottom: calc(env(safe-area-inset-bottom) + 30px);
+    width: 96px; height: 96px; border-radius: 50%;
+    background: rgba(255,80,80,0.30);
+    border: 3px solid rgba(255,120,120,0.7);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 16px; letter-spacing: 1px;
+    color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+  #fireBtn.active { background: rgba(255,80,80,0.55); transform: scale(0.94); }
+
+  /* ---- Overlays ---- */
+  .overlay {
+    position: fixed; inset: 0; z-index: 20;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 24px;
+    background: radial-gradient(circle at 50% 40%, rgba(20,26,38,0.72), rgba(6,8,12,0.92));
+    pointer-events: auto;
+  }
+  .overlay h1 { font-size: clamp(34px, 8vw, 64px); font-weight: 800; letter-spacing: 1px; margin-bottom: 8px; }
+  .overlay p { font-size: clamp(15px, 4vw, 19px); opacity: 0.85; max-width: 560px; line-height: 1.5; margin-bottom: 6px; }
+  .overlay .big { font-size: clamp(20px, 5vw, 26px); opacity: 1; margin: 10px 0; font-weight: 700; }
+  .btn {
+    margin-top: 22px; pointer-events: auto;
+    padding: 16px 34px; border-radius: 14px;
+    background: linear-gradient(90deg, #ff5252, #ff8a4d);
+    color: #fff; font-weight: 800; font-size: 19px; letter-spacing: 0.5px;
+    border: none; box-shadow: 0 8px 24px rgba(255,80,80,0.35); cursor: pointer;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+  .hidden { display: none !important; }
+
+  #rotateHint {
+    position: fixed; inset: 0; z-index: 30; display: none;
+    flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(8,10,16,0.92); text-align: center; padding: 24px;
+  }
+  #rotateHint .icon { font-size: 64px; margin-bottom: 16px; animation: rock 1.6s ease-in-out infinite; }
+  @keyframes rock { 0%,100% { transform: rotate(-12deg); } 50% { transform: rotate(78deg); } }
 </style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
 </head>
 <body>
-<canvas id="game"></canvas>
-<script>
-(function () {
-  "use strict";
+<div id="app"></div>
 
-  var canvas = document.getElementById("game");
-  var ctx = canvas.getContext("2d");
+<div id="hud" class="hidden">
+  <div id="crosshair"></div>
+  <div id="topbar">
+    <div id="waveLabel" class="stat">WAVE 1</div>
+    <div id="scoreLabel" class="stat">0</div>
+  </div>
+  <div id="healthWrap"><div id="healthBar"></div></div>
 
-  // ---- Display / sizing ----
-  var DPR = Math.max(1, Math.min(window.devicePixelRatio || 1, 3));
-  var W = 0, H = 0;          // CSS pixel dimensions of the viewport
-  var safeTop = 0, safeBottom = 0;
+  <div id="touchUI">
+    <div id="joystick"><div id="joyThumb"></div></div>
+    <div id="fireBtn">FIRE</div>
+  </div>
+</div>
 
-  function readSafeInsets() {
-    var probe = document.createElement("div");
-    probe.style.cssText =
-      "position:fixed;top:0;left:0;width:0;height:0;" +
-      "padding-top:env(safe-area-inset-top);" +
-      "padding-bottom:env(safe-area-inset-bottom);visibility:hidden;";
-    document.body.appendChild(probe);
-    var cs = getComputedStyle(probe);
-    safeTop = parseFloat(cs.paddingTop) || 0;
-    safeBottom = parseFloat(cs.paddingBottom) || 0;
-    document.body.removeChild(probe);
+<div id="startScreen" class="overlay">
+  <h1>ARENA FPS</h1>
+  <p id="startHelp">Survive the waves. Shoot the robots before they reach you.</p>
+  <button id="startBtn" class="btn">Tap to Start</button>
+</div>
+
+<div id="gameOver" class="overlay hidden">
+  <h1>GAME OVER</h1>
+  <div class="big" id="finalScore">Score: 0</div>
+  <div class="big" id="finalWaves">Waves survived: 0</div>
+  <button id="restartBtn" class="btn">Tap to Restart</button>
+</div>
+
+<div id="rotateHint">
+  <div class="icon">📱</div>
+  <p>Rotate your device to landscape for the best experience</p>
+</div>
+
+<script type="module">
+import * as THREE from "three";
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+const ARENA = 38;                 // half-size of the square arena floor
+const WALL_H = 7;
+const PLAYER_HEIGHT = 1.7;
+const PLAYER_RADIUS = 0.8;
+const PLAYER_SPEED = 9;           // units/sec
+const MAX_ENEMIES = 26;
+const ENEMY_RADIUS = 0.9;
+const FIRE_COOLDOWN = 0.16;       // seconds between shots
+const MAX_HEALTH = 100;
+
+const isTouch = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
+
+// ---------------------------------------------------------------------------
+// DOM
+// ---------------------------------------------------------------------------
+const app = document.getElementById("app");
+const hud = document.getElementById("hud");
+const waveLabel = document.getElementById("waveLabel");
+const scoreLabel = document.getElementById("scoreLabel");
+const healthBar = document.getElementById("healthBar");
+const touchUI = document.getElementById("touchUI");
+const joystick = document.getElementById("joystick");
+const joyThumb = document.getElementById("joyThumb");
+const fireBtn = document.getElementById("fireBtn");
+const startScreen = document.getElementById("startScreen");
+const startBtn = document.getElementById("startBtn");
+const startHelp = document.getElementById("startHelp");
+const gameOver = document.getElementById("gameOver");
+const restartBtn = document.getElementById("restartBtn");
+const finalScore = document.getElementById("finalScore");
+const finalWaves = document.getElementById("finalWaves");
+const rotateHint = document.getElementById("rotateHint");
+
+// ---------------------------------------------------------------------------
+// Renderer / scene / camera
+// ---------------------------------------------------------------------------
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+app.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const SKY = 0x141a26;
+scene.background = new THREE.Color(SKY);
+scene.fog = new THREE.Fog(SKY, 22, 78);
+
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
+
+// Yaw object holds the camera; we rotate yaw for left/right and pitch on camera.
+const yaw = new THREE.Object3D();
+yaw.position.set(0, PLAYER_HEIGHT, 0);
+yaw.add(camera);
+scene.add(yaw);
+let pitch = 0; // radians, clamped
+
+// ---------------------------------------------------------------------------
+// Lights
+// ---------------------------------------------------------------------------
+scene.add(new THREE.AmbientLight(0x8899bb, 0.7));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
+dirLight.position.set(20, 40, 12);
+scene.add(dirLight);
+
+// ---------------------------------------------------------------------------
+// Arena geometry (shared materials)
+// ---------------------------------------------------------------------------
+const floorMat = new THREE.MeshStandardMaterial({ color: 0x2a3142, roughness: 0.95, metalness: 0.0 });
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(ARENA * 2, ARENA * 2), floorMat);
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
+
+// Grid lines for a low-poly arena feel.
+const grid = new THREE.GridHelper(ARENA * 2, 30, 0x47506b, 0x353d52);
+grid.position.y = 0.02;
+scene.add(grid);
+
+// Surrounding walls (4 boxes), shared material + geometry where possible.
+const wallMat = new THREE.MeshStandardMaterial({ color: 0x3a4258, roughness: 0.85 });
+const wallThick = 1.5;
+function makeWall(w, d, x, z) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, WALL_H, d), wallMat);
+  m.position.set(x, WALL_H / 2, z);
+  scene.add(m);
+}
+const span = ARENA * 2 + wallThick;
+makeWall(span, wallThick, 0, -ARENA);   // north
+makeWall(span, wallThick, 0, ARENA);    // south
+makeWall(wallThick, span, -ARENA, 0);   // west
+makeWall(wallThick, span, ARENA, 0);    // east
+
+// ---------------------------------------------------------------------------
+// Shared enemy resources
+// ---------------------------------------------------------------------------
+const enemyBodyGeo = new THREE.BoxGeometry(1.2, 1.6, 1.0);
+const enemyHeadGeo = new THREE.BoxGeometry(0.8, 0.7, 0.8);
+const enemyEyeGeo = new THREE.BoxGeometry(0.16, 0.16, 0.08);
+const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffe14d, emissive: 0xffcc00, emissiveIntensity: 0.9 });
+const enemyMatPool = []; // reused materials by tint index
+
+function enemyMaterial(hue) {
+  const m = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(hue, 0.55, 0.5), roughness: 0.6, metalness: 0.2 });
+  enemyMatPool.push(m);
+  return m;
+}
+
+// ---------------------------------------------------------------------------
+// Particles (shared geometry/material; small pool of bursts)
+// ---------------------------------------------------------------------------
+const particleGeo = new THREE.BufferGeometry();
+const PARTICLES_PER_BURST = 14;
+function makeBurst(position, color) {
+  const positions = new Float32Array(PARTICLES_PER_BURST * 3);
+  const velocities = [];
+  for (let i = 0; i < PARTICLES_PER_BURST; i++) {
+    positions[i * 3] = position.x;
+    positions[i * 3 + 1] = position.y;
+    positions[i * 3 + 2] = position.z;
+    const v = new THREE.Vector3(
+      (Math.random() - 0.5),
+      (Math.random() - 0.2),
+      (Math.random() - 0.5)
+    ).normalize().multiplyScalar(4 + Math.random() * 5);
+    velocities.push(v);
   }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({ color, size: 0.32, transparent: true, opacity: 1 });
+  const points = new THREE.Points(geo, mat);
+  scene.add(points);
+  bursts.push({ points, velocities, life: 0.5, max: 0.5 });
+}
+const bursts = [];
 
-  function resize() {
-    readSafeInsets();
-    W = window.innerWidth;
-    H = window.innerHeight;
-    canvas.width = Math.round(W * DPR);
-    canvas.height = Math.round(H * DPR);
-    canvas.style.width = W + "px";
-    canvas.style.height = H + "px";
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    layout();
-  }
+// ---------------------------------------------------------------------------
+// Muzzle flash (a small additive sprite-like plane in front of camera)
+// ---------------------------------------------------------------------------
+const muzzleMat = new THREE.MeshBasicMaterial({ color: 0xfff2a0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthTest: false });
+const muzzle = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), muzzleMat);
+muzzle.position.set(0.12, -0.12, -0.6);
+camera.add(muzzle);
+let muzzleTime = 0;
 
-  // ---- Game constants ----
-  var BLOCK_H = 0;           // height of each layer (computed from viewport)
-  var baseY = 0;             // screen Y of the top of the very first (base) block
-  var anchorScreenY = 0;     // where the active/top block sits on screen
-  var INITIAL_SPEED = 0;     // px per second
-  var SPEED_STEP = 0;
-  var PERFECT_TOL = 6;       // px tolerance for a "perfect" drop
+// ---------------------------------------------------------------------------
+// Game state
+// ---------------------------------------------------------------------------
+const enemies = [];
+let wave = 0;
+let score = 0;
+let health = MAX_HEALTH;
+let toSpawn = 0;             // enemies left to spawn this wave
+let spawnTimer = 0;
+let running = false;
+let fireTimer = 0;
 
-  function layout() {
-    BLOCK_H = Math.max(34, Math.min(56, H * 0.062));
-    baseY = H - safeBottom - Math.max(40, H * 0.10);
-    anchorScreenY = safeTop + Math.max(150, H * 0.26);
-    INITIAL_SPEED = W * 0.62;
-    SPEED_STEP = W * 0.022;
-  }
+const raycaster = new THREE.Raycaster();
+const screenCenter = new THREE.Vector2(0, 0);
 
-  // ---- State ----
-  var STATE_READY = 0, STATE_PLAYING = 1, STATE_OVER = 2;
-  var state;
+function resetGame() {
+  // remove existing enemies & bursts
+  for (const e of enemies) scene.remove(e.group);
+  enemies.length = 0;
+  for (const b of bursts) scene.remove(b.points);
+  bursts.length = 0;
 
-  var stack;        // array of placed blocks {x, w, hue}  (x = left edge in world coords)
-  var active;       // currently sliding block {x, w, hue, dir, speed}
-  var debris;       // sliced-off falling pieces
-  var camera;       // world->screen vertical offset (smoothly eased)
-  var cameraTarget;
-  var score;
-  var best;
-  var baseHue;
-  var perfectFlash; // 0..1 timer for the "Perfect!" flash
-  var perfectStreak;
-  var shake;        // screen shake amount
-  var overTimer;    // delay before allowing replay tap
+  wave = 0; score = 0; health = MAX_HEALTH;
+  yaw.position.set(0, PLAYER_HEIGHT, 0);
+  yaw.rotation.set(0, 0, 0);
+  pitch = 0;
+  camera.rotation.set(0, 0, 0);
+  updateHUD();
+  startWave();
+}
 
-  try { best = parseInt(localStorage.getItem("stack_best") || "0", 10) || 0; }
-  catch (e) { best = 0; }
+function startWave() {
+  wave++;
+  toSpawn = 4 + Math.floor(wave * 1.7);
+  spawnTimer = 0;
+  updateHUD();
+}
 
-  // World coordinates: y increases downward. Each placed block i (0 = base)
-  // has its top at worldTop = -(i * BLOCK_H). We render worldY - camera onto screen.
-  function worldTopOfLayer(i) { return -(i * BLOCK_H); }
+function enemySpeedForWave() {
+  return 1.7 + wave * 0.22;   // units/sec, grows each wave
+}
 
-  function screenYForWorld(wy) { return wy + camera; }
+function spawnEnemy() {
+  if (enemies.length >= MAX_ENEMIES) return;
 
-  function reset() {
-    state = STATE_READY;
-    score = 0;
-    debris = [];
-    perfectFlash = 0;
-    perfectStreak = 0;
-    shake = 0;
-    camera = baseY;          // so layer 0 top sits at baseY on screen initially
-    cameraTarget = camera;
-    baseHue = Math.random() * 360;
+  const group = new THREE.Group();
+  const hue = (0.0 + wave * 0.07) % 1.0;
+  const bodyMat = enemyMaterial(hue);
+  const body = new THREE.Mesh(enemyBodyGeo, bodyMat);
+  body.position.y = 0.8;
+  group.add(body);
+  const head = new THREE.Mesh(enemyHeadGeo, bodyMat);
+  head.position.y = 1.95;
+  group.add(head);
+  const eyeL = new THREE.Mesh(enemyEyeGeo, eyeMat); eyeL.position.set(-0.2, 2.0, 0.42); group.add(eyeL);
+  const eyeR = new THREE.Mesh(enemyEyeGeo, eyeMat); eyeR.position.set(0.2, 2.0, 0.42); group.add(eyeR);
 
-    var startW = Math.min(W * 0.62, 320);
-    var startX = (W - startW) / 2;
+  // spawn at a random point along arena edge
+  const edge = Math.floor(Math.random() * 4);
+  const t = (Math.random() * 2 - 1) * (ARENA - 3);
+  let x, z;
+  if (edge === 0) { x = t; z = -(ARENA - 3); }
+  else if (edge === 1) { x = t; z = ARENA - 3; }
+  else if (edge === 2) { x = -(ARENA - 3); z = t; }
+  else { x = ARENA - 3; z = t; }
+  group.position.set(x, 0, z);
+  scene.add(group);
 
-    stack = [{ x: startX, w: startW, hue: baseHue }];
-    spawnActive();
-  }
-
-  function hueForLayer(i) {
-    return (baseHue + i * 8) % 360;
-  }
-
-  function spawnActive() {
-    var top = stack[stack.length - 1];
-    var layerIndex = stack.length;
-    var fromLeft = layerIndex % 2 === 0; // alternate entry side
-    active = {
-      x: fromLeft ? -top.w : W,
-      w: top.w,
-      hue: hueForLayer(layerIndex),
-      dir: fromLeft ? 1 : -1,
-      speed: INITIAL_SPEED + SPEED_STEP * (layerIndex - 1)
-    };
-    // The active block lives one layer above the current top.
-    // We adjust the camera so the active block stays near anchorScreenY.
-    cameraTarget = anchorScreenY - worldTopOfLayer(layerIndex);
-  }
-
-  // ---- Input ----
-  function onTap(e) {
-    if (e) { e.preventDefault(); }
-    if (state === STATE_READY) {
-      state = STATE_PLAYING;
-      return;
-    }
-    if (state === STATE_PLAYING) {
-      dropBlock();
-      return;
-    }
-    if (state === STATE_OVER) {
-      if (overTimer <= 0) { reset(); state = STATE_PLAYING; }
-      return;
-    }
-  }
-
-  canvas.addEventListener("touchstart", onTap, { passive: false });
-  canvas.addEventListener("mousedown", function (e) {
-    // Avoid double-firing on devices that emit both.
-    if (e.button !== undefined && e.button !== 0) return;
-    onTap(e);
+  enemies.push({
+    group, body,
+    speed: enemySpeedForWave() * (0.85 + Math.random() * 0.3),
+    hitFlash: 0,
+    damageCooldown: 0,
+    hue
   });
-  // Block gestures that could scroll/zoom.
-  document.addEventListener("touchmove", function (e) { e.preventDefault(); }, { passive: false });
-  document.addEventListener("gesturestart", function (e) { e.preventDefault(); });
-  document.addEventListener("dblclick", function (e) { e.preventDefault(); });
+}
 
-  function dropBlock() {
-    var top = stack[stack.length - 1];
-    var a = active;
+// ---------------------------------------------------------------------------
+// Shooting
+// ---------------------------------------------------------------------------
+function shoot() {
+  if (!running || fireTimer > 0) return;
+  fireTimer = FIRE_COOLDOWN;
 
-    var aLeft = a.x;
-    var aRight = a.x + a.w;
-    var tLeft = top.x;
-    var tRight = top.x + top.w;
+  // muzzle flash
+  muzzleMat.opacity = 1;
+  muzzleTime = 0.06;
 
-    var overlapLeft = Math.max(aLeft, tLeft);
-    var overlapRight = Math.min(aRight, tRight);
-    var overlap = overlapRight - overlapLeft;
+  raycaster.setFromCamera(screenCenter, camera);
+  // Test against enemy body meshes.
+  const meshes = enemies.map(e => e.body);
+  const hits = raycaster.intersectObjects(meshes, false);
+  if (hits.length > 0) {
+    const hitMesh = hits[0].object;
+    const idx = enemies.findIndex(e => e.body === hitMesh);
+    if (idx !== -1) killEnemy(idx, hits[0].point);
+  }
+}
 
-    var layerIndex = stack.length;
-    var worldTop = worldTopOfLayer(layerIndex);
+function killEnemy(idx, point) {
+  const e = enemies[idx];
+  const color = new THREE.Color().setHSL(e.hue, 0.7, 0.6);
+  makeBurst(point || e.group.position.clone().setY(1.2), color);
+  scene.remove(e.group);
+  // dispose per-enemy material (geometries are shared)
+  if (e.body.material) e.body.material.dispose();
+  enemies.splice(idx, 1);
+  score += 10;
+  updateHUD();
+}
 
-    if (overlap <= 0) {
-      // Complete miss -> game over. The whole block falls.
-      debris.push({
-        x: aLeft, w: a.w, y: worldTop, hue: a.hue,
-        vy: 0, vx: a.dir * 40, rot: 0, vr: (Math.random() - 0.5) * 4
-      });
-      endGame();
-      return;
+// ---------------------------------------------------------------------------
+// HUD
+// ---------------------------------------------------------------------------
+function updateHUD() {
+  waveLabel.textContent = "WAVE " + wave;
+  scoreLabel.textContent = String(score);
+  healthBar.style.width = Math.max(0, (health / MAX_HEALTH) * 100) + "%";
+}
+
+// ---------------------------------------------------------------------------
+// Input: desktop (pointer lock + WASD + click)
+// ---------------------------------------------------------------------------
+const keys = {};
+window.addEventListener("keydown", e => { keys[e.code] = true; });
+window.addEventListener("keyup", e => { keys[e.code] = false; });
+
+const PITCH_LIMIT = Math.PI / 2 - 0.05;
+
+function applyLook(dx, dy, sensitivity) {
+  yaw.rotation.y -= dx * sensitivity;
+  pitch -= dy * sensitivity;
+  pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
+  camera.rotation.x = pitch;
+}
+
+if (!isTouch) {
+  const canvas = renderer.domElement;
+  canvas.addEventListener("click", () => {
+    if (running && document.pointerLockElement !== canvas) {
+      canvas.requestPointerLock();
     }
+  });
+  document.addEventListener("mousemove", e => {
+    if (document.pointerLockElement === canvas) {
+      applyLook(e.movementX, e.movementY, 0.0022);
+    }
+  });
+  document.addEventListener("mousedown", e => {
+    if (e.button === 0 && document.pointerLockElement === canvas) shoot();
+  });
+}
 
-    var offset = Math.abs(a.x - top.x);
-    var perfect = offset <= PERFECT_TOL;
+// ---------------------------------------------------------------------------
+// Input: touch (left = joystick, right = look, fire button)
+// ---------------------------------------------------------------------------
+let moveTouchId = null;
+let lookTouchId = null;
+const joyOrigin = { x: 0, y: 0 };
+const moveVec = { x: 0, y: 0 };  // normalized -1..1
+let lookLast = { x: 0, y: 0 };
+let touchFiring = false;
 
-    var newX, newW;
-    if (perfect) {
-      newX = top.x;
-      newW = top.w;
-      perfectFlash = 1;
-      perfectStreak++;
+function isRightHalf(x) { return x > window.innerWidth * 0.5; }
+
+if (isTouch) {
+  const surface = renderer.domElement;
+
+  surface.addEventListener("touchstart", e => {
+    for (const t of e.changedTouches) {
+      if (!isRightHalf(t.clientX) && moveTouchId === null) {
+        moveTouchId = t.identifier;
+        joyOrigin.x = t.clientX; joyOrigin.y = t.clientY;
+        joystick.style.display = "block";
+        joystick.style.left = t.clientX + "px";
+        joystick.style.top = t.clientY + "px";
+        joyThumb.style.transform = "translate(0px, 0px)";
+      } else if (isRightHalf(t.clientX) && lookTouchId === null) {
+        lookTouchId = t.identifier;
+        lookLast.x = t.clientX; lookLast.y = t.clientY;
+      }
+    }
+  }, { passive: false });
+
+  surface.addEventListener("touchmove", e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier === moveTouchId) {
+        let dx = t.clientX - joyOrigin.x;
+        let dy = t.clientY - joyOrigin.y;
+        const max = 52;
+        const len = Math.hypot(dx, dy) || 1;
+        const cl = Math.min(len, max);
+        const nx = (dx / len) * cl;
+        const ny = (dy / len) * cl;
+        joyThumb.style.transform = "translate(" + nx + "px," + ny + "px)";
+        moveVec.x = nx / max;
+        moveVec.y = ny / max;
+      } else if (t.identifier === lookTouchId) {
+        const dx = t.clientX - lookLast.x;
+        const dy = t.clientY - lookLast.y;
+        lookLast.x = t.clientX; lookLast.y = t.clientY;
+        applyLook(dx, dy, 0.004);
+      }
+    }
+  }, { passive: false });
+
+  function endTouch(e) {
+    for (const t of e.changedTouches) {
+      if (t.identifier === moveTouchId) {
+        moveTouchId = null;
+        moveVec.x = 0; moveVec.y = 0;
+        joystick.style.display = "none";
+      } else if (t.identifier === lookTouchId) {
+        lookTouchId = null;
+      }
+    }
+  }
+  surface.addEventListener("touchend", endTouch, { passive: false });
+  surface.addEventListener("touchcancel", endTouch, { passive: false });
+
+  // Fire button (continuous fire while held).
+  fireBtn.addEventListener("touchstart", e => {
+    e.preventDefault(); e.stopPropagation();
+    touchFiring = true; fireBtn.classList.add("active");
+  }, { passive: false });
+  const stopFire = () => { touchFiring = false; fireBtn.classList.remove("active"); };
+  fireBtn.addEventListener("touchend", stopFire);
+  fireBtn.addEventListener("touchcancel", stopFire);
+}
+
+// ---------------------------------------------------------------------------
+// Movement + collisions
+// ---------------------------------------------------------------------------
+const forward = new THREE.Vector3();
+const right = new THREE.Vector3();
+const tmp = new THREE.Vector3();
+
+function updatePlayer(dt) {
+  // Determine movement intent.
+  let ix = 0, iz = 0; // x = strafe, z = forward(-)/back(+)
+  if (isTouch) {
+    ix = moveVec.x;
+    iz = moveVec.y;
+  } else {
+    if (keys["KeyW"]) iz -= 1;
+    if (keys["KeyS"]) iz += 1;
+    if (keys["KeyA"]) ix -= 1;
+    if (keys["KeyD"]) ix += 1;
+  }
+  const mag = Math.hypot(ix, iz);
+  if (mag > 1) { ix /= mag; iz /= mag; }
+
+  if (mag > 0.001) {
+    // Camera-forward and camera-right on the XZ plane based on yaw.
+    forward.set(-Math.sin(yaw.rotation.y), 0, -Math.cos(yaw.rotation.y));
+    right.set(Math.cos(yaw.rotation.y), 0, -Math.sin(yaw.rotation.y));
+    tmp.set(0, 0, 0)
+      .addScaledVector(forward, -iz)   // iz negative = forward
+      .addScaledVector(right, ix)
+      .normalize()
+      .multiplyScalar(PLAYER_SPEED * dt);
+    yaw.position.x += tmp.x;
+    yaw.position.z += tmp.z;
+
+    const lim = ARENA - PLAYER_RADIUS - wallThick / 2;
+    yaw.position.x = Math.max(-lim, Math.min(lim, yaw.position.x));
+    yaw.position.z = Math.max(-lim, Math.min(lim, yaw.position.z));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Enemy update
+// ---------------------------------------------------------------------------
+const dir2 = new THREE.Vector3();
+function updateEnemies(dt) {
+  const px = yaw.position.x, pz = yaw.position.z;
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    dir2.set(px - e.group.position.x, 0, pz - e.group.position.z);
+    const dist = dir2.length();
+    if (dist > 0.0001) dir2.multiplyScalar(1 / dist);
+
+    // face the player
+    e.group.rotation.y = Math.atan2(dir2.x, dir2.z);
+
+    // move toward player (stop when touching)
+    if (dist > PLAYER_RADIUS + ENEMY_RADIUS) {
+      e.group.position.x += dir2.x * e.speed * dt;
+      e.group.position.z += dir2.z * e.speed * dt;
     } else {
-      newX = overlapLeft;
-      newW = overlap;
-      perfectStreak = 0;
-
-      // Create debris for the sliced overhang.
-      if (aLeft < overlapLeft) {
-        debris.push({
-          x: aLeft, w: overlapLeft - aLeft, y: worldTop, hue: a.hue,
-          vy: 0, vx: -30 - Math.random() * 30, rot: 0, vr: (Math.random() - 0.5) * 3
-        });
-      }
-      if (aRight > overlapRight) {
-        debris.push({
-          x: overlapRight, w: aRight - overlapRight, y: worldTop, hue: a.hue,
-          vy: 0, vx: 30 + Math.random() * 30, rot: 0, vr: (Math.random() - 0.5) * 3
-        });
+      // contact damage on a cooldown
+      e.damageCooldown -= dt;
+      if (e.damageCooldown <= 0) {
+        e.damageCooldown = 0.6;
+        health -= 8;
+        updateHUD();
+        if (health <= 0) { health = 0; endGame(); return; }
       }
     }
 
-    stack.push({ x: newX, w: newW, hue: a.hue });
-    score++;
-    shake = Math.min(8, 2 + (a.speed / W) * 4);
-
-    spawnActive();
-  }
-
-  function endGame() {
-    state = STATE_OVER;
-    overTimer = 0.6;
-    shake = 10;
-    if (score > best) {
-      best = score;
-      try { localStorage.setItem("stack_best", String(best)); } catch (e) {}
-    }
-  }
-
-  // ---- Update ----
-  function update(dt) {
-    // Camera easing.
-    camera += (cameraTarget - camera) * Math.min(1, dt * 6);
-
-    if (perfectFlash > 0) perfectFlash = Math.max(0, perfectFlash - dt * 1.8);
-    if (shake > 0) shake = Math.max(0, shake - dt * 30);
-    if (state === STATE_OVER && overTimer > 0) overTimer -= dt;
-
-    if (state === STATE_PLAYING && active) {
-      var a = active;
-      a.x += a.dir * a.speed * dt;
-      // Bounce within a margin so it never fully leaves the screen.
-      var margin = Math.min(40, W * 0.06);
-      if (a.x + a.w > W - margin) { a.x = W - margin - a.w; a.dir = -1; }
-      if (a.x < margin) { a.x = margin; a.dir = 1; }
-    }
-
-    // Update debris (gravity fall).
-    for (var i = debris.length - 1; i >= 0; i--) {
-      var d = debris[i];
-      d.vy += 1800 * dt;
-      d.y += d.vy * dt;
-      d.x += d.vx * dt;
-      d.rot += d.vr * dt;
-      // Remove once well below the screen (in world coords -> screen).
-      if (screenYForWorld(d.y) > H + 200) debris.splice(i, 1);
-    }
-  }
-
-  // ---- Render ----
-  function drawBackground() {
-    var hueA = baseHue;
-    var hueB = (baseHue + 40) % 360;
-    var g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, "hsl(" + hueA + ", 45%, 16%)");
-    g.addColorStop(0.55, "hsl(" + ((hueA + 20) % 360) + ", 38%, 11%)");
-    g.addColorStop(1, "hsl(" + hueB + ", 30%, 7%)");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  function roundedBlock(x, y, w, h, hue, light) {
-    var r = Math.min(8, h * 0.18, w * 0.4);
-    if (r < 0) r = 0;
-    // Main face.
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-
-    var grad = ctx.createLinearGradient(x, y, x, y + h);
-    grad.addColorStop(0, "hsl(" + hue + ", 62%, " + (light + 10) + "%)");
-    grad.addColorStop(1, "hsl(" + hue + ", 62%, " + (light - 6) + "%)");
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    // Top highlight strip.
-    ctx.fillStyle = "hsla(" + hue + ", 70%, 85%, 0.18)";
-    ctx.fillRect(x + r, y, Math.max(0, w - r * 2), Math.max(1, h * 0.12));
-  }
-
-  function render() {
-    drawBackground();
-
-    ctx.save();
-    if (shake > 0) {
-      ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
-    }
-
-    // Draw placed stack blocks.
-    for (var i = 0; i < stack.length; i++) {
-      var b = stack[i];
-      var sy = screenYForWorld(worldTopOfLayer(i));
-      if (sy > H + BLOCK_H || sy + BLOCK_H < -50) continue; // cull off-screen
-      var light = 52 + (i % 2) * 4;
-      roundedBlock(b.x, sy, b.w, BLOCK_H, b.hue, light);
-    }
-
-    // Draw debris.
-    for (var j = 0; j < debris.length; j++) {
-      var d = debris[j];
-      var dsy = screenYForWorld(d.y);
-      ctx.save();
-      ctx.translate(d.x + d.w / 2, dsy + BLOCK_H / 2);
-      ctx.rotate(d.rot);
-      ctx.globalAlpha = 0.9;
-      roundedBlock(-d.w / 2, -BLOCK_H / 2, d.w, BLOCK_H, d.hue, 50);
-      ctx.restore();
-    }
-    ctx.globalAlpha = 1;
-
-    // Draw active sliding block.
-    if (state === STATE_PLAYING && active) {
-      var asy = screenYForWorld(worldTopOfLayer(stack.length));
-      roundedBlock(active.x, asy, active.w, BLOCK_H, active.hue, 58);
-    }
-
-    ctx.restore();
-
-    drawUI();
-  }
-
-  function drawUI() {
-    ctx.textAlign = "center";
-    ctx.textBaseline = "alphabetic";
-
-    if (state === STATE_READY) {
-      // Title + prompt.
-      ctx.fillStyle = "rgba(255,255,255,0.96)";
-      ctx.font = "700 " + Math.round(Math.min(W * 0.16, 86)) + "px -apple-system, system-ui, sans-serif";
-      ctx.fillText("STACK", W / 2, safeTop + Math.max(110, H * 0.22));
-
-      ctx.fillStyle = "rgba(255,255,255,0.78)";
-      ctx.font = "500 " + Math.round(Math.min(W * 0.052, 24)) + "px -apple-system, system-ui, sans-serif";
-      ctx.fillText("Tap to drop the block", W / 2, safeTop + Math.max(160, H * 0.30));
-
-      pulsePrompt("Tap to start", H * 0.62);
-
-      if (best > 0) {
-        ctx.fillStyle = "rgba(255,255,255,0.55)";
-        ctx.font = "500 " + Math.round(Math.min(W * 0.045, 20)) + "px -apple-system, system-ui, sans-serif";
-        ctx.fillText("Best  " + best, W / 2, H * 0.70);
-      }
-      return;
-    }
-
-    // Score (centered near top, below the notch).
-    var scoreY = safeTop + Math.max(70, H * 0.13);
-    ctx.fillStyle = "rgba(255,255,255,0.97)";
-    ctx.font = "700 " + Math.round(Math.min(W * 0.18, 92)) + "px -apple-system, system-ui, sans-serif";
-    ctx.shadowColor = "rgba(0,0,0,0.35)";
-    ctx.shadowBlur = 12;
-    ctx.fillText(String(score), W / 2, scoreY);
-    ctx.shadowBlur = 0;
-
-    // Perfect flash.
-    if (perfectFlash > 0) {
-      ctx.globalAlpha = Math.min(1, perfectFlash * 1.4);
-      ctx.fillStyle = "rgba(255,255,255,0.95)";
-      ctx.font = "700 " + Math.round(Math.min(W * 0.072, 34)) + "px -apple-system, system-ui, sans-serif";
-      var label = perfectStreak > 1 ? "Perfect! x" + perfectStreak : "Perfect!";
-      ctx.fillText(label, W / 2, scoreY + Math.min(W * 0.10, 48));
-      ctx.globalAlpha = 1;
-    }
-
-    if (state === STATE_OVER) {
-      // Dim overlay.
-      ctx.fillStyle = "rgba(8,10,15,0.55)";
-      ctx.fillRect(0, 0, W, H);
-
-      ctx.fillStyle = "rgba(255,255,255,0.96)";
-      ctx.font = "700 " + Math.round(Math.min(W * 0.10, 50)) + "px -apple-system, system-ui, sans-serif";
-      ctx.fillText("Game Over", W / 2, H * 0.40);
-
-      ctx.font = "700 " + Math.round(Math.min(W * 0.20, 100)) + "px -apple-system, system-ui, sans-serif";
-      ctx.fillStyle = "rgba(255,255,255,0.98)";
-      ctx.fillText(String(score), W / 2, H * 0.40 + Math.min(W * 0.24, 118));
-
-      ctx.fillStyle = "rgba(255,255,255,0.72)";
-      ctx.font = "500 " + Math.round(Math.min(W * 0.05, 22)) + "px -apple-system, system-ui, sans-serif";
-      ctx.fillText("Best  " + best, W / 2, H * 0.40 + Math.min(W * 0.24, 118) + 46);
-
-      if (overTimer <= 0) {
-        pulsePrompt("Tap to play again", H * 0.74);
+    // separation so robots don't perfectly overlap
+    for (let j = i - 1; j >= 0; j--) {
+      const o = enemies[j];
+      const ddx = e.group.position.x - o.group.position.x;
+      const ddz = e.group.position.z - o.group.position.z;
+      const d2 = ddx * ddx + ddz * ddz;
+      const minD = ENEMY_RADIUS * 2;
+      if (d2 < minD * minD && d2 > 0.0001) {
+        const d = Math.sqrt(d2);
+        const push = (minD - d) * 0.5;
+        const ux = ddx / d, uz = ddz / d;
+        e.group.position.x += ux * push; e.group.position.z += uz * push;
+        o.group.position.x -= ux * push; o.group.position.z -= uz * push;
       }
     }
+
+    // little bob animation
+    e.group.position.y = Math.sin(performance.now() * 0.006 + i) * 0.06;
   }
 
-  function pulsePrompt(text, y) {
-    var t = (Date.now() % 1400) / 1400;
-    var alpha = 0.55 + 0.45 * Math.sin(t * Math.PI * 2);
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = "rgba(255,255,255,0.9)";
-    ctx.font = "600 " + Math.round(Math.min(W * 0.058, 26)) + "px -apple-system, system-ui, sans-serif";
-    ctx.fillText(text, W / 2, y);
-    ctx.globalAlpha = 1;
+  // wave progression: spawn over time, then advance when cleared
+  if (toSpawn > 0) {
+    spawnTimer -= dt;
+    if (spawnTimer <= 0) {
+      spawnEnemy();
+      toSpawn--;
+      spawnTimer = Math.max(0.25, 0.9 - wave * 0.04);
+    }
+  } else if (enemies.length === 0) {
+    startWave();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bursts (particles) update
+// ---------------------------------------------------------------------------
+function updateBursts(dt) {
+  for (let i = bursts.length - 1; i >= 0; i--) {
+    const b = bursts[i];
+    b.life -= dt;
+    const pos = b.points.geometry.attributes.position;
+    for (let p = 0; p < PARTICLES_PER_BURST; p++) {
+      const v = b.velocities[p];
+      v.y -= 9 * dt; // gravity
+      pos.array[p * 3] += v.x * dt;
+      pos.array[p * 3 + 1] += v.y * dt;
+      pos.array[p * 3 + 2] += v.z * dt;
+    }
+    pos.needsUpdate = true;
+    b.points.material.opacity = Math.max(0, b.life / b.max);
+    if (b.life <= 0) {
+      scene.remove(b.points);
+      b.points.geometry.dispose();
+      b.points.material.dispose();
+      bursts.splice(i, 1);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Game flow
+// ---------------------------------------------------------------------------
+function startGame() {
+  startScreen.classList.add("hidden");
+  gameOver.classList.add("hidden");
+  hud.classList.remove("hidden");
+  if (isTouch) touchUI.style.display = "block";
+  resetGame();
+  running = true;
+  lastT = performance.now();
+}
+
+function endGame() {
+  running = false;
+  finalScore.textContent = "Score: " + score;
+  finalWaves.textContent = "Waves survived: " + Math.max(0, wave - 1);
+  gameOver.classList.remove("hidden");
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+
+startBtn.addEventListener("click", startGame);
+restartBtn.addEventListener("click", startGame);
+
+// ---------------------------------------------------------------------------
+// Resize + orientation
+// ---------------------------------------------------------------------------
+function onResize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+  checkOrientation();
+}
+function checkOrientation() {
+  if (isTouch && window.innerHeight > window.innerWidth) {
+    rotateHint.style.display = "flex";
+  } else {
+    rotateHint.style.display = "none";
+  }
+}
+window.addEventListener("resize", onResize);
+window.addEventListener("orientationchange", () => setTimeout(onResize, 150));
+
+// Prevent gesture zoom / double-tap zoom on the document.
+document.addEventListener("gesturestart", e => e.preventDefault());
+document.addEventListener("dblclick", e => e.preventDefault());
+
+// ---------------------------------------------------------------------------
+// Main loop
+// ---------------------------------------------------------------------------
+let lastT = performance.now();
+function loop(now) {
+  requestAnimationFrame(loop);
+  let dt = (now - lastT) / 1000;
+  lastT = now;
+  if (dt > 0.05) dt = 0.05; // clamp
+
+  if (running) {
+    fireTimer = Math.max(0, fireTimer - dt);
+    if (isTouch && touchFiring) shoot();
+    if (!isTouch && keys["Space"]) shoot();
+
+    updatePlayer(dt);
+    updateEnemies(dt);
+    updateBursts(dt);
+
+    // muzzle flash fade
+    if (muzzleTime > 0) {
+      muzzleTime -= dt;
+      muzzleMat.opacity = Math.max(0, muzzleTime / 0.06);
+      muzzle.rotation.z = Math.random() * Math.PI;
+    }
   }
 
-  // ---- Main loop ----
-  var lastT = 0;
-  function frame(now) {
-    if (!lastT) lastT = now;
-    var dt = (now - lastT) / 1000;
-    lastT = now;
-    if (dt > 0.05) dt = 0.05; // clamp after tab-switch / hiccups
+  renderer.render(scene, camera);
+}
 
-    update(dt);
-    render();
-    requestAnimationFrame(frame);
-  }
-
-  // ---- Boot ----
-  window.addEventListener("resize", resize);
-  window.addEventListener("orientationchange", function () {
-    setTimeout(resize, 120);
-  });
-
-  resize();
-  reset();
-  requestAnimationFrame(frame);
-})();
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+if (isTouch) {
+  startHelp.textContent = "Left side to move • Right side to look • FIRE to shoot. Survive the waves!";
+} else {
+  startHelp.textContent = "WASD to move • Mouse to look (click to lock) • Left-click or Space to shoot. Survive the waves!";
+}
+checkOrientation();
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
